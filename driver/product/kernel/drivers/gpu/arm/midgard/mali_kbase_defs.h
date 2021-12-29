@@ -75,6 +75,9 @@
 #include <linux/regulator/consumer.h>
 #include <linux/memory_group_manager.h>
 
+/* MALI_SEC_INTEGRATION */
+#include <platform/exynos/gpu_integration_defs.h>
+
 #if defined(CONFIG_PM_RUNTIME) || \
 	(defined(CONFIG_PM) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
 #define KBASE_PM_RUNTIME 1
@@ -122,6 +125,11 @@
  * Minimum size in bytes of a MMU lock region, as a logarithm
  */
 #define KBASE_LOCK_REGION_MIN_SIZE_LOG2 (15)
+
+/**
+ * Maximum number of GPU memory region zones
+ */
+#define KBASE_REG_ZONE_MAX 4ul
 
 #include "mali_kbase_hwaccess_defs.h"
 
@@ -397,10 +405,14 @@ struct kbase_pm_device_data {
 	int active_count;
 	/** Flag indicating suspending/suspended */
 	bool suspending;
+
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
 	/* Flag indicating gpu lost */
 	bool gpu_lost;
 #endif /* CONFIG_MALI_ARBITER_SUPPORT */
+
+	/* MALI_SEC_INTEGRATION */
+	wait_queue_head_t suspending_wait;
 	/* Wait queue set when active_count == 0 */
 	wait_queue_head_t zero_active_count_wait;
 
@@ -410,6 +422,10 @@ struct kbase_pm_device_data {
 	 */
 	u64 debug_core_mask[BASE_JM_MAX_NR_SLOTS];
 	u64 debug_core_mask_all;
+#ifdef CONFIG_MALI_GPU_CORE_MASK_SELECTION
+	/* MALI_SEC_INTEGRATION */
+	u64 debug_core_mask_info;
+#endif
 
 	/**
 	 * Callback for initializing the runtime power management.
@@ -869,6 +885,7 @@ struct kbase_process {
  *                         enabled.
  * @protected_mode_hwcnt_disable_work: Work item to disable GPU hardware
  *                         counters, used if atomic disable is not possible.
+ * @protected_mode_support: set to true if protected mode is supported.
  * @buslogger:              Pointer to the structure required for interfacing
  *                          with the bus logger module to set the size of buffer
  *                          used by the module for capturing bus logs.
@@ -1054,6 +1071,10 @@ struct kbase_device {
 	struct dentry *mali_debugfs_directory;
 	struct dentry *debugfs_ctx_directory;
 
+	/* MALI_SEC_INTEGRATION */
+	/* debugfs entry for trace */
+	struct dentry *trace_dentry;
+
 #ifdef CONFIG_MALI_DEBUG
 	u64 debugfs_as_read_bitmap;
 #endif /* CONFIG_MALI_DEBUG */
@@ -1124,6 +1145,9 @@ struct kbase_device {
 	spinlock_t hwaccess_lock;
 
 	struct mutex mmu_hw_mutex;
+
+	/* MALI_SEC_INTEGRATION */
+	struct kbase_vendor_callbacks *vendor_callbacks;
 
 	u8 l2_size_override;
 	u8 l2_hash_override;
@@ -1306,6 +1330,21 @@ struct kbase_sub_alloc {
 };
 
 /**
+ * struct kbase_reg_zone - Information about GPU memory region zones
+ * @base_pfn: Page Frame Number in GPU virtual address space for the start of
+ *            the Zone
+ * @va_size_pages: Size of the Zone in pages
+ *
+ * Track information about a zone KBASE_REG_ZONE() and related macros.
+ * In future, this could also store the &rb_root that are currently in
+ * &kbase_context
+ */
+struct kbase_reg_zone {
+	u64 base_pfn;
+	u64 va_size_pages;
+};
+
+/**
  * struct kbase_context - Kernel base context
  *
  * @filp:                 Pointer to the struct file corresponding to device file
@@ -1355,6 +1394,7 @@ struct kbase_sub_alloc {
  * @reg_rbtree_exec:      RB tree of the memory regions allocated from the EXEC_VA
  *                        zone of the GPU virtual address space. Used for GPU-executable
  *                        allocations which don't need the SAME_VA property.
+ * @reg_zone:             Zone information for the reg_rbtree_<...> members.
  * @cookies:              Bitmask containing of BITS_PER_LONG bits, used mainly for
  *                        SAME_VA allocations to defer the reservation of memory region
  *                        (from the GPU virtual address space) from base_mem_alloc
@@ -1429,9 +1469,6 @@ struct kbase_sub_alloc {
  *                        created the context. Used for accounting the physical
  *                        pages used for GPU allocations, done for the context,
  *                        to the memory consumed by the process.
- * @same_va_end:          End address of the SAME_VA zone (in 4KB page units)
- * @exec_va_start:        Start address of the EXEC_VA zone (in 4KB page units)
- *                        or U64_MAX if the EXEC_VA zone is uninitialized.
  * @gpu_va_end:           End address of the GPU va space (in 4KB page units)
  * @jit_va:               Indicates if a JIT_VA zone has been created.
  * @mem_profile_data:     Buffer containing the profiling information provided by
@@ -1558,6 +1595,8 @@ struct kbase_sub_alloc {
  * @atoms_count:          Number of GPU atoms currently in use, per priority
  * @create_flags:         Flags used in context creation.
  * @kinstr_jm:            Kernel job manager instrumentation context handle
+ * @tl_kctx_list_node:    List item into the device timeline's list of
+ *                        contexts, for timeline summarization.
  *
  * A kernel base context is an entity among which the GPU is scheduled.
  * Each context has its own GPU address space.
@@ -1593,6 +1632,7 @@ struct kbase_context {
 	struct rb_root reg_rbtree_same;
 	struct rb_root reg_rbtree_custom;
 	struct rb_root reg_rbtree_exec;
+	struct kbase_reg_zone reg_zone[KBASE_REG_ZONE_MAX];
 
 	struct kbase_jd_context jctx;
 	struct jsctx_queue jsctx_queue
@@ -1601,6 +1641,17 @@ struct kbase_context {
 	struct list_head completed_jobs;
 	atomic_t work_count;
 	struct timer_list soft_job_timeout;
+
+	/* MALI_SEC_INTEGRATION */
+	int ctx_status;
+	char name[CTX_NAME_SIZE];
+	/* MALI_SEC_INTEGRATION */
+	bool destroying_context;
+	atomic_t mem_profile_showing_state;
+	wait_queue_head_t mem_profile_wait;
+
+	/* MALI_SEC_INTEGRATION */
+	bool need_to_force_schedule_out;
 
 	atomic_t atoms_pulled;
 	atomic_t atoms_pulled_slot[BASE_JM_MAX_NR_SLOTS];
@@ -1642,8 +1693,6 @@ struct kbase_context {
 
 	spinlock_t         mm_update_lock;
 	struct mm_struct __rcu *process_mm;
-	u64 same_va_end;
-	u64 exec_va_start;
 	u64 gpu_va_end;
 	bool jit_va;
 
@@ -1695,7 +1744,16 @@ struct kbase_context {
 
 	base_context_create_flags create_flags;
 
+	/* MALI_SEC_INTEGRATION */
+#ifdef CONFIG_MALI_SEC_VK_BOOST
+	bool ctx_vk_need_qos;
+#endif
+
+	/* MALI_SEC_INTEGRATION */
+	u64 mem_usage;
+
 	struct kbase_kinstr_jm *kinstr_jm;
+	struct list_head tl_kctx_list_node;
 };
 
 #ifdef CONFIG_MALI_CINSTR_GWT

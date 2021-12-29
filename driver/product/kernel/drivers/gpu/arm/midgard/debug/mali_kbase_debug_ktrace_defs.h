@@ -24,7 +24,8 @@
 #define _KBASE_DEBUG_KTRACE_DEFS_H_
 
 /* Enable SW tracing when set */
-#if defined(CONFIG_MALI_MIDGARD_ENABLE_TRACE) || defined(CONFIG_MALI_SYSTEM_TRACE)
+/* MALI_SEC_INTEGRATION */
+#if defined(CONFIG_MALI_MIDGARD_ENABLE_TRACE) || defined(CONFIG_MALI_SYSTEM_TRACE) || defined(CONFIG_MALI_EXYNOS_TRACE)
 #define KBASE_KTRACE_ENABLE 1
 #endif
 
@@ -47,7 +48,8 @@
 #define KBASE_KTRACE_TARGET_FTRACE 0
 #endif /* CONFIG_MALI_SYSTEM_TRACE */
 
-#ifdef CONFIG_MALI_MIDGARD_ENABLE_TRACE
+/* MALI_SEC_INTEGRATION */
+#if defined(CONFIG_MALI_MIDGARD_ENABLE_TRACE) || defined(CONFIG_MALI_EXYNOS_TRACE)
 #define KBASE_KTRACE_TARGET_RBUF 1
 #else /* CONFIG_MALI_MIDGARD_ENABLE_TRACE*/
 #define KBASE_KTRACE_TARGET_RBUF 0
@@ -71,16 +73,6 @@
 typedef u8 kbase_ktrace_flag_t;
 typedef u8 kbase_ktrace_code_t;
 
-/*
- * struct kbase_ktrace_backend - backend specific part of a trace message
- *
- * At the very least, this must contain a kbase_ktrace_code_t 'code' member and
- * a kbase_ktrace_flag_t 'flags' member
- */
-struct kbase_ktrace_backend;
-
-#include "debug/backend/mali_kbase_debug_ktrace_defs_jm.h"
-
 /* Indicates if the trace message has backend related info.
  *
  * If not set, consider the &kbase_ktrace_backend part of a &kbase_ktrace_msg
@@ -89,8 +81,12 @@ struct kbase_ktrace_backend;
  * - flags
  */
 #define KBASE_KTRACE_FLAG_BACKEND     (((kbase_ktrace_flag_t)1) << 7)
-
+/* MALI_SEC_INTEGRATION */
+#ifdef CONFIG_MALI_EXYNOS_TRACE
+#define KBASE_KTRACE_SHIFT 11 /* 2048 entries */
+#else
 #define KBASE_KTRACE_SHIFT 8 /* 256 entries */
+#endif
 #define KBASE_KTRACE_SIZE (1 << KBASE_KTRACE_SHIFT)
 #define KBASE_KTRACE_MASK ((1 << KBASE_KTRACE_SHIFT)-1)
 
@@ -112,6 +108,15 @@ enum kbase_ktrace_code {
 	/* Must be the last in the enum */
 	KBASE_KTRACE_CODE_COUNT
 };
+
+/*
+ * struct kbase_ktrace_backend - backend specific part of a trace message
+ *
+ * At the very least, this must contain a kbase_ktrace_code_t 'code' member and
+ * a kbase_ktrace_flag_t 'flags' member
+ */
+struct kbase_ktrace_backend;
+#include "debug/backend/mali_kbase_debug_ktrace_defs_jm.h"
 
 /**
  * struct kbase_ktrace - object representing a trace message added to trace

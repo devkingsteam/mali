@@ -25,8 +25,8 @@
 #include <linux/interrupt.h>
 
 #include "mali_kbase.h"
-#include <midgard/backend/gpu/mali_kbase_device_internal.h>
-#include <midgard/backend/gpu/mali_kbase_pm_internal.h>
+#include <b_r26p0/backend/gpu/mali_kbase_device_internal.h>
+#include <b_r26p0/backend/gpu/mali_kbase_pm_internal.h>
 
 #include <kutf/kutf_suite.h>
 #include <kutf/kutf_utils.h>

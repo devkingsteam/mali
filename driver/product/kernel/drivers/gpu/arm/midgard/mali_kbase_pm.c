@@ -187,6 +187,8 @@ void kbase_pm_driver_suspend(struct kbase_device *kbdev)
 	 * it reaches zero it will stay there - guaranteeing that we've idled
 	 * all pm references
 	 */
+	/* MALI_SEC_INTEGRATION */
+	KBASE_KTRACE_ADD(kbdev, LSI_PM_SUSPEND, NULL, 0);
 
 	/* Suspend job scheduler and associated components, so that it releases all
 	 * the PM active count references */

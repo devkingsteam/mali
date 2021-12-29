@@ -80,6 +80,9 @@
 
 #include "mali_linux_trace.h"
 
+/* MALI_SEC_INTEGRATION */
+#include <mali_kbase_uku.h>
+
 
 #ifndef u64_to_user_ptr
 /* Introduced in Linux v4.6 */
@@ -388,6 +391,11 @@ int kbase_soft_event_update(struct kbase_context *kctx,
 void kbasep_soft_job_timeout_worker(struct timer_list *timer);
 void kbasep_complete_triggered_soft_events(struct kbase_context *kctx, u64 evt);
 
+/* MALI_SEC_INTEGRATION */
+/* api to be ported per OS, only need to do the raw register access */
+void kbase_os_reg_write(struct kbase_device *kbdev, u16 offset, u32 value);
+u32 kbase_os_reg_read(struct kbase_device *kbdev, u16 offset);
+
 void kbasep_as_do_poke(struct work_struct *work);
 
 /**
@@ -572,6 +580,8 @@ void kbase_disjoint_state_down(struct kbase_device *kbdev);
 	#define UINT64_MAX ((uint64_t)0xFFFFFFFFFFFFFFFFULL)
 #endif
 
+/* MALI_SEC_INTEGRATION */
+void gpu_dump_register_hooks(struct kbase_device *kbdev);
 #if defined(CONFIG_DEBUG_FS) && !defined(CONFIG_MALI_NO_MALI)
 
 /* kbase_io_history_init - initialize data struct for register access history

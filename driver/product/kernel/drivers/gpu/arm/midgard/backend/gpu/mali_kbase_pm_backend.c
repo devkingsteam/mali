@@ -69,6 +69,9 @@ int kbase_pm_runtime_init(struct kbase_device *kbdev)
 					callbacks->power_runtime_idle_callback;
 		kbdev->pm.backend.callback_soft_reset =
 					callbacks->soft_reset_callback;
+		/* MALI_SEC_INTEGRATION */
+		kbdev->pm.backend.callback_power_dvfs_on =
+					callbacks->power_dvfs_on_callback;
 
 		if (callbacks->power_runtime_init_callback)
 			return callbacks->power_runtime_init_callback(kbdev);
@@ -140,9 +143,12 @@ int kbase_hwaccess_pm_init(struct kbase_device *kbdev)
 	kbdev->pm.backend.ca_cores_enabled = ~0ull;
 	kbdev->pm.backend.gpu_powered = false;
 	kbdev->pm.suspending = false;
+
 #ifdef CONFIG_MALI_ARBITER_SUPPORT
 	kbdev->pm.gpu_lost = false;
 #endif
+	/* MALI_SEC_INTEGRATION */
+	init_waitqueue_head(&kbdev->pm.suspending_wait);
 #ifdef CONFIG_MALI_DEBUG
 	kbdev->pm.backend.driver_ready_for_irqs = false;
 #endif /* CONFIG_MALI_DEBUG */
@@ -257,6 +263,9 @@ static void kbase_pm_gpu_poweroff_wait_wq(struct work_struct *data)
 	kbase_pm_wait_for_desired_state(kbdev);
 
 	kbase_pm_lock(kbdev);
+
+	/* MALI_SEC_INTEGRATION */
+	KBASE_KTRACE_ADD(kbdev, KBASE_DEVICE_PM_WAIT_WQ_RUN, NULL, backend->poweron_required);
 
 	if (!backend->poweron_required) {
 		unsigned long flags;
@@ -573,6 +582,8 @@ void kbase_hwaccess_pm_halt(struct kbase_device *kbdev)
 	mutex_lock(&kbdev->pm.lock);
 	kbase_pm_do_poweroff(kbdev);
 	mutex_unlock(&kbdev->pm.lock);
+
+	kbase_pm_wait_for_poweroff_complete(kbdev);
 }
 
 KBASE_EXPORT_TEST_API(kbase_hwaccess_pm_halt);
@@ -664,6 +675,9 @@ void kbase_hwaccess_pm_suspend(struct kbase_device *kbdev)
 
 	if (kbdev->pm.backend.callback_power_suspend)
 		kbdev->pm.backend.callback_power_suspend(kbdev);
+
+	/* MALI_SEC_INTEGRATION */
+	KBASE_KTRACE_ADD(kbdev, KBASE_DEVICE_PM_SUSPEND, NULL, 0u);
 }
 
 void kbase_hwaccess_pm_resume(struct kbase_device *kbdev)
@@ -675,10 +689,14 @@ void kbase_hwaccess_pm_resume(struct kbase_device *kbdev)
 	kbdev->pm.gpu_lost = false;
 #endif
 	kbase_pm_do_poweron(kbdev, true);
+	/* MALI_SEC_INTEGRATION */
+	wake_up(&kbdev->pm.suspending_wait);
 
 	kbase_backend_timer_resume(kbdev);
 
 	kbase_pm_unlock(kbdev);
+	/* MALI_SEC_INTEGRATION */
+	KBASE_KTRACE_ADD(kbdev, KBASE_DEVICE_PM_RESUME, NULL, 0u);
 }
 
 #ifdef CONFIG_MALI_ARBITER_SUPPORT

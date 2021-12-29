@@ -143,6 +143,8 @@ int dummy_array[] = {
 	/* info_val == kctx->refcount */
 	KBASE_KTRACE_CODE_MAKE_CODE(SCHED_RELEASE_CTX),
 
+/* MALI_SEC_INTEGRATION */
+#include "platform/exynos/gpu_trace_defs.h"
 
 #include "debug/backend/mali_kbase_debug_ktrace_codes_jm.h"
 	/*
